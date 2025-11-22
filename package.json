@@ -8,7 +8,8 @@
     "start": "node index.js",
     "dev": "nodemon index.js",
     "seed:cities": "node seed/seedMPCities.js",
-    "seed:localities": "node seed/seedLocalities.js"
+    "seed:localities": "node seed/seedLocalities.js",
+     "seed:all": "npm run seed:cities && npm run seed:localities"
   },
   "keywords": [],
   "author": "",

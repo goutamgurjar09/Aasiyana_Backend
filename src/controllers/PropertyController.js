@@ -9,6 +9,113 @@ const extractFilename = (path) => (path ? path.split("\\").pop().split("/").pop(
 const getImageUrl = (filename) => cloudinary.url(filename, { secure: true });
 
 // ✅ CREATE Property
+// const createProperty = async (req, res) => {
+//   try {
+//     let data = { ...req.body };
+
+//     // Parse JSON fields
+//     ["details", "location", "features", "amenities", "owner"].forEach((key) => {
+//       if (typeof data[key] === "string") {
+//         try {
+//           data[key] = JSON.parse(data[key]);
+//         } catch (parseErr) {
+//           console.error(`Error parsing ${key}:`, parseErr);
+//           return error(res, new Error(`Invalid ${key} format`), 400);
+//         }
+//       }
+//     });
+
+//     // ✅ Store only filenames (Cloudinary public IDs)
+//     const uploadedImages = req.files?.map((file) => file.filename) || [];
+
+//     if (uploadedImages.length === 0)
+//       return error(res, new Error("At least one property image is required"), 400);
+
+//     data.propertyImages = uploadedImages;
+//     data.createdBy = req.user._id;
+
+//     // ✅ Auto approval rules
+//     if (req.user.role === "superAdmin") {
+//       data.approvalStatus = "approved";
+//       data.approvedBy = req.user._id;
+//     } else {
+//       data.approvalStatus = "pending";
+//     }
+
+
+//     const property = await Property.create(data);
+//     return success(res, property, "Property created successfully", 201);
+//   } catch (err) {
+//     // ✅ Better error handling for validation errors
+//     if (err.name === 'ValidationError') {
+//       const errors = Object.values(err.errors).map(e => e.message);
+//       return error(res, new Error(errors.join(', ')), 400);
+//     }
+
+//     // MongoDB duplicate key error
+//     if (err.code === 11000) {
+//       return error(res, new Error("Property ID already exists"), 400);
+//     }
+//     return error(res, err, 500);
+//   }
+// };
+
+
+// // ✅ UPDATE Property
+// const updateProperty = async (req, res) => {
+//   try {
+//     req.uploadFolder = "properties";
+//     const { id } = req.params;
+//     const property = await Property.findById(id);
+//     if (!property) return error(res, new Error("Property not found"), 404);
+
+//     // Only creator or admin/superAdmin can update
+//     if (req.user.role !== "superAdmin" &&
+//       property.createdBy.toString() !== req.user._id.toString()
+//     ) {
+//       return error(res, new Error("Unauthorized access"), 403);
+//     }
+
+//     let data = { ...req.body };
+
+//     ["details", "location", "features", "amenities", "owner"].forEach((key) => {
+//       if (typeof data[key] === "string") data[key] = JSON.parse(data[key]);
+//     });
+
+//     const oldImages = Array.isArray(data.existingImages)
+//       ? data.existingImages
+//       : data.existingImages
+//         ? [data.existingImages]
+//         : [];
+
+//     // const newImages = req.files?.map((file) => extractFilename(file.path)) || [];
+//     // ✅ Use secure_url or path from Cloudinary upload result
+//     const newImages = req.files?.map((file) => file.path || file.secure_url) || [];
+
+//     if (oldImages.length > 0 || newImages.length > 0) {
+//       data.propertyImages = [...oldImages, ...newImages];
+//     }
+//     delete data.existingImages;
+
+//     // ✅ Reset approval status if edited (except superadmin)
+//     if (req.user.role !== "superAdmin" && property.approvalStatus === "approved") {
+//       data.approvalStatus = "pending";
+//       data.approvedBy = null;
+//     }
+
+//     Object.assign(property, data);
+//     await property.save();
+
+//     return success(res, property, "Property updated successfully");
+//   } catch (err) {
+//     return error(res, err, 500);
+//   }
+// };
+
+
+
+
+
 const createProperty = async (req, res) => {
   try {
     let data = { ...req.body };
@@ -18,59 +125,64 @@ const createProperty = async (req, res) => {
       if (typeof data[key] === "string") {
         try {
           data[key] = JSON.parse(data[key]);
-        } catch (parseErr) {
-          console.error(`Error parsing ${key}:`, parseErr);
+        } catch (err) {
           return error(res, new Error(`Invalid ${key} format`), 400);
         }
       }
     });
 
-    // ✅ Store only filenames (Cloudinary public IDs)
+    // Uploaded images (Cloudinary)
     const uploadedImages = req.files?.map((file) => file.filename) || [];
-
     if (uploadedImages.length === 0)
-      return error(res, new Error("At least one property image is required"), 400);
+      return error(
+        res,
+        new Error("At least one property image is required"),
+        400
+      );
 
     data.propertyImages = uploadedImages;
     data.createdBy = req.user._id;
 
-    // ✅ Auto approval rules
+    // -------------------------------
+    // FINAL FIXED APPROVAL LOGIC
+    // -------------------------------
     if (req.user.role === "superAdmin") {
+      // ONLY superAdmin auto-approves
       data.approvalStatus = "approved";
       data.approvedBy = req.user._id;
     } else {
+      // Admin + Seller both stay pending
       data.approvalStatus = "pending";
+      data.approvedBy = null;
     }
-
+    // -------------------------------
 
     const property = await Property.create(data);
     return success(res, property, "Property created successfully", 201);
   } catch (err) {
-    // ✅ Better error handling for validation errors
-    if (err.name === 'ValidationError') {
-      const errors = Object.values(err.errors).map(e => e.message);
-      return error(res, new Error(errors.join(', ')), 400);
+    if (err.name === "ValidationError") {
+      const errors = Object.values(err.errors).map((e) => e.message);
+      return error(res, new Error(errors.join(", ")), 400);
     }
 
-    // MongoDB duplicate key error
-    if (err.code === 11000) {
-      return error(res, new Error("Property ID already exists"), 400);
-    }
     return error(res, err, 500);
   }
 };
 
 
-// ✅ UPDATE Property
+
 const updateProperty = async (req, res) => {
   try {
     req.uploadFolder = "properties";
     const { id } = req.params;
+
     const property = await Property.findById(id);
     if (!property) return error(res, new Error("Property not found"), 404);
 
-    // Only creator or admin/superAdmin can update
-    if (req.user.role !== "superAdmin" &&
+    // Only creator OR admin/superAdmin can update
+    if (
+      req.user.role !== "superAdmin" &&
+      req.user.role !== "admin" &&
       property.createdBy.toString() !== req.user._id.toString()
     ) {
       return error(res, new Error("Unauthorized access"), 403);
@@ -78,6 +190,7 @@ const updateProperty = async (req, res) => {
 
     let data = { ...req.body };
 
+    // Parse JSON
     ["details", "location", "features", "amenities", "owner"].forEach((key) => {
       if (typeof data[key] === "string") data[key] = JSON.parse(data[key]);
     });
@@ -85,23 +198,46 @@ const updateProperty = async (req, res) => {
     const oldImages = Array.isArray(data.existingImages)
       ? data.existingImages
       : data.existingImages
-        ? [data.existingImages]
-        : [];
+      ? [data.existingImages]
+      : [];
 
-    // const newImages = req.files?.map((file) => extractFilename(file.path)) || [];
-    // ✅ Use secure_url or path from Cloudinary upload result
-    const newImages = req.files?.map((file) => file.path || file.secure_url) || [];
-
-    if (oldImages.length > 0 || newImages.length > 0) {
-      data.propertyImages = [...oldImages, ...newImages];
-    }
+    const newImages =
+      req.files?.map((file) => file.path || file.secure_url) || [];
+    data.propertyImages = [...oldImages, ...newImages];
     delete data.existingImages;
 
-    // ✅ Reset approval status if edited (except superadmin)
-    if (req.user.role !== "superAdmin" && property.approvalStatus === "approved") {
+    // -----------------------------------------
+    // FINAL APPROVAL LOGIC
+    // -----------------------------------------
+
+    if (req.user.role === "superAdmin") {
+      // SuperAdmin → always approved
+      data.approvalStatus = "approved";
+      data.approvedBy = req.user._id;
+    } else if (req.user.role === "admin") {
+      // ADMIN updating
+
+      // CASE 1: Property was approved by SuperAdmin earlier
+      if (
+        property.approvedBy &&
+        property.approvedBy.toString() !== property.createdBy.toString()
+      ) {
+        // Means approvedBy is superAdmin
+        data.approvalStatus = "approved";
+        data.approvedBy = property.approvedBy;
+      } else {
+        // CASE 2: Admin-created property OR seller-created but not approved yet
+        // → back to pending
+        data.approvalStatus = "pending";
+        data.approvedBy = null;
+      }
+    } else if (req.user.role === "seller") {
+      // Seller updates → always pending
       data.approvalStatus = "pending";
       data.approvedBy = null;
     }
+
+    // -----------------------------------------
 
     Object.assign(property, data);
     await property.save();
@@ -111,6 +247,30 @@ const updateProperty = async (req, res) => {
     return error(res, err, 500);
   }
 };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 // GET ALL PROPERTIES (Role-Based Filtering) — FIXED
