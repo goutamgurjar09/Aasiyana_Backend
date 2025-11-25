@@ -8,114 +8,8 @@ const { success, error } = require("../utils/responseHandler");
 const extractFilename = (path) => (path ? path.split("\\").pop().split("/").pop() : null);
 const getImageUrl = (filename) => cloudinary.url(filename, { secure: true });
 
-// ✅ CREATE Property
-// const createProperty = async (req, res) => {
-//   try {
-//     let data = { ...req.body };
-
-//     // Parse JSON fields
-//     ["details", "location", "features", "amenities", "owner"].forEach((key) => {
-//       if (typeof data[key] === "string") {
-//         try {
-//           data[key] = JSON.parse(data[key]);
-//         } catch (parseErr) {
-//           console.error(`Error parsing ${key}:`, parseErr);
-//           return error(res, new Error(`Invalid ${key} format`), 400);
-//         }
-//       }
-//     });
-
-//     // ✅ Store only filenames (Cloudinary public IDs)
-//     const uploadedImages = req.files?.map((file) => file.filename) || [];
-
-//     if (uploadedImages.length === 0)
-//       return error(res, new Error("At least one property image is required"), 400);
-
-//     data.propertyImages = uploadedImages;
-//     data.createdBy = req.user._id;
-
-//     // ✅ Auto approval rules
-//     if (req.user.role === "superAdmin") {
-//       data.approvalStatus = "approved";
-//       data.approvedBy = req.user._id;
-//     } else {
-//       data.approvalStatus = "pending";
-//     }
-
-
-//     const property = await Property.create(data);
-//     return success(res, property, "Property created successfully", 201);
-//   } catch (err) {
-//     // ✅ Better error handling for validation errors
-//     if (err.name === 'ValidationError') {
-//       const errors = Object.values(err.errors).map(e => e.message);
-//       return error(res, new Error(errors.join(', ')), 400);
-//     }
-
-//     // MongoDB duplicate key error
-//     if (err.code === 11000) {
-//       return error(res, new Error("Property ID already exists"), 400);
-//     }
-//     return error(res, err, 500);
-//   }
-// };
-
-
-// // ✅ UPDATE Property
-// const updateProperty = async (req, res) => {
-//   try {
-//     req.uploadFolder = "properties";
-//     const { id } = req.params;
-//     const property = await Property.findById(id);
-//     if (!property) return error(res, new Error("Property not found"), 404);
-
-//     // Only creator or admin/superAdmin can update
-//     if (req.user.role !== "superAdmin" &&
-//       property.createdBy.toString() !== req.user._id.toString()
-//     ) {
-//       return error(res, new Error("Unauthorized access"), 403);
-//     }
-
-//     let data = { ...req.body };
-
-//     ["details", "location", "features", "amenities", "owner"].forEach((key) => {
-//       if (typeof data[key] === "string") data[key] = JSON.parse(data[key]);
-//     });
-
-//     const oldImages = Array.isArray(data.existingImages)
-//       ? data.existingImages
-//       : data.existingImages
-//         ? [data.existingImages]
-//         : [];
-
-//     // const newImages = req.files?.map((file) => extractFilename(file.path)) || [];
-//     // ✅ Use secure_url or path from Cloudinary upload result
-//     const newImages = req.files?.map((file) => file.path || file.secure_url) || [];
-
-//     if (oldImages.length > 0 || newImages.length > 0) {
-//       data.propertyImages = [...oldImages, ...newImages];
-//     }
-//     delete data.existingImages;
-
-//     // ✅ Reset approval status if edited (except superadmin)
-//     if (req.user.role !== "superAdmin" && property.approvalStatus === "approved") {
-//       data.approvalStatus = "pending";
-//       data.approvedBy = null;
-//     }
-
-//     Object.assign(property, data);
-//     await property.save();
-
-//     return success(res, property, "Property updated successfully");
-//   } catch (err) {
-//     return error(res, err, 500);
-//   }
-// };
-
-
-
-
-
+// CREATE PROPERTY
+// ========================================
 const createProperty = async (req, res) => {
   try {
     let data = { ...req.body };
@@ -144,14 +38,14 @@ const createProperty = async (req, res) => {
     data.createdBy = req.user._id;
 
     // -------------------------------
-    // FINAL FIXED APPROVAL LOGIC
+    // APPROVAL LOGIC
     // -------------------------------
     if (req.user.role === "superAdmin") {
-      // ONLY superAdmin auto-approves
+      // SuperAdmin auto-approves their own properties
       data.approvalStatus = "approved";
       data.approvedBy = req.user._id;
     } else {
-      // Admin + Seller both stay pending
+      // Admin and Seller both create as "pending"
       data.approvalStatus = "pending";
       data.approvedBy = null;
     }
@@ -169,8 +63,9 @@ const createProperty = async (req, res) => {
   }
 };
 
-
-
+// ========================================
+// UPDATE PROPERTY
+// ========================================
 const updateProperty = async (req, res) => {
   try {
     req.uploadFolder = "properties";
@@ -207,36 +102,42 @@ const updateProperty = async (req, res) => {
     delete data.existingImages;
 
     // -----------------------------------------
-    // FINAL APPROVAL LOGIC
+    // APPROVAL LOGIC - FIXED
     // -----------------------------------------
-
     if (req.user.role === "superAdmin") {
       // SuperAdmin → always approved
       data.approvalStatus = "approved";
       data.approvedBy = req.user._id;
     } else if (req.user.role === "admin") {
-      // ADMIN updating
-
-      // CASE 1: Property was approved by SuperAdmin earlier
-      if (
-        property.approvedBy &&
-        property.approvedBy.toString() !== property.createdBy.toString()
-      ) {
-        // Means approvedBy is superAdmin
-        data.approvalStatus = "approved";
-        data.approvedBy = property.approvedBy;
+      // Admin updating their own property
+      if (property.createdBy.toString() === req.user._id.toString()) {
+        // If already approved, keep it approved
+        if (property.approvalStatus === "approved") {
+          data.approvalStatus = "approved";
+          data.approvedBy = property.approvedBy; // Keep original approver
+        } else {
+          // If pending/rejected → stays pending
+          data.approvalStatus = "pending";
+          data.approvedBy = null;
+        }
       } else {
-        // CASE 2: Admin-created property OR seller-created but not approved yet
-        // → back to pending
+        // Admin updating someone else's property (seller's)
+        // Keep current approval status (admin can't auto-approve others)
+        data.approvalStatus = property.approvalStatus;
+        data.approvedBy = property.approvedBy;
+      }
+    } else if (req.user.role === "seller") {
+      // Seller updating their own property
+      if (property.approvalStatus === "approved") {
+        // If already approved, keep it approved
+        data.approvalStatus = "approved";
+        data.approvedBy = property.approvedBy; // Keep original approver
+      } else {
+        // If pending/rejected → stays pending
         data.approvalStatus = "pending";
         data.approvedBy = null;
       }
-    } else if (req.user.role === "seller") {
-      // Seller updates → always pending
-      data.approvalStatus = "pending";
-      data.approvedBy = null;
     }
-
     // -----------------------------------------
 
     Object.assign(property, data);
@@ -248,32 +149,65 @@ const updateProperty = async (req, res) => {
   }
 };
 
+// ========================================
+// UPDATE APPROVAL STATUS 
+// ========================================
+const updateApprovalStatus = async (req, res) => {
+  try {
+    const { approvalStatus } = req.body;
 
+    if (!["approved", "rejected"].includes(approvalStatus))
+      return error(res, new Error("Invalid approval status"), 400);
 
+    const property = await Property.findById(req.params.id)
+      .populate("createdBy", "role fullname");
 
+    if (!property) return error(res, new Error("Property not found"), 404);
 
+    const creatorRole = property.createdBy.role;
 
+    // Role-based approval logic
+    if (req.user.role === "seller") {
+      return error(res, new Error("Seller cannot approve properties"), 403);
+    }
 
+    if (req.user.role === "admin") {
+      // Admin can only approve Seller properties
+      if (creatorRole !== "seller") {
+        return error(res, new Error("Admin can approve only Seller properties"), 403);
+      }
+    }
 
+    if (req.user.role === "superAdmin") {
+      // SuperAdmin can approve Admin and Seller properties
+      if (!["admin", "seller"].includes(creatorRole)) {
+        return error(res, new Error("Invalid property creator role"), 403);
+      }
+    }
 
+    property.approvalStatus = approvalStatus;
+    property.approvedBy = req.user._id;
+    await property.save();
 
+    return success(
+      res,
+      {
+        propertyId: property._id,
+        approvedBy: property.approvedBy,
+        createdBy: property.createdBy._id,
+        approvalStatus: property.approvalStatus
+      },
+      `Property ${approvalStatus} successfully`
+    );
 
+  } catch (err) {
+    return error(res, err, 500);
+  }
+};
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// GET ALL PROPERTIES (Role-Based Filtering) — FIXED
+// ========================================
+// GET ALL PROPERTIES
+// ========================================
 const getAllProperties = async (req, res) => {
   try {
     const {
@@ -326,11 +260,11 @@ const getAllProperties = async (req, res) => {
       { $match: match },
     ];
 
-    // ---------- ROLE LOGIC ----------
+    // ---------- ROLE LOGIC - FIXED ----------
     const role = req.user.role;
 
     if (role === "seller") {
-      // Seller → sees only own approved + rejected
+      // Seller → sees only their own properties (all statuses)
       basePipeline.push({
         $match: {
           createdBy: new mongoose.Types.ObjectId(req.user._id),
@@ -338,29 +272,33 @@ const getAllProperties = async (req, res) => {
         },
       });
     }
-
     else if (role === "admin") {
-      // Admin → own approved/rejected + sellers' pending
+      // Admin → sees:
+      // 1. Their own properties (pending, approved, rejected)
+      // 2. Sellers' pending properties
       basePipeline.push({
         $match: {
           $or: [
             {
+              // Admin's own properties (all statuses)
               createdBy: new mongoose.Types.ObjectId(req.user._id),
-              approvalStatus: { $in: ["approved", "rejected"] },
+              approvalStatus: { $in: ["pending", "approved", "rejected"] },
             },
-            { createdByRole: "seller", approvalStatus: "pending" },
+            {
+              // Sellers' pending properties
+              createdByRole: "seller",
+              approvalStatus: "pending",
+            },
           ],
         },
       });
     }
-
     else if (role === "superAdmin") {
-      // Superadmin → sees ALL
+      // SuperAdmin → sees ALL properties (no filter)
       basePipeline.push({ $match: {} });
     }
-
     else {
-      // Public → only approved
+      // Public → only approved properties
       basePipeline.push({ $match: { approvalStatus: "approved" } });
     }
 
@@ -395,6 +333,7 @@ const getAllProperties = async (req, res) => {
           postedAt: 1,
           createdAt: 1,
           updatedAt: 1,
+          approvedBy: 1,
           city: "$cityData.name",
           locality: "$location.locality.name",
           createdBy: {
@@ -433,42 +372,6 @@ const getAllProperties = async (req, res) => {
 };
 
 
-// ✅ APPROVE / REJECT Property - FIXED
-const updateApprovalStatus = async (req, res) => {
-  try {
-    const { approvalStatus } = req.body;
-
-    if (!["approved", "rejected"].includes(approvalStatus))
-      return error(res, new Error("Invalid approval status"), 400);
-
-    const property = await Property.findById(req.params.id)
-      .populate("createdBy", "role name");
-
-    if (!property) return error(res, new Error("Property not found"), 404);
-
-    const creatorRole = property.createdBy.role;
-
-    // Role logic
-    if (req.user.role === "seller")
-      return error(res, new Error("Seller cannot approve properties"), 403);
-
-    if (req.user.role === "admin") {
-      if (creatorRole !== "seller")
-        return error(res, new Error("Admin can approve only Seller properties"), 403);
-    }
-
-    property.approvalStatus = approvalStatus;
-    property.approvedBy = req.user._id;
-    await property.save();
-
-    return success(res, { propertyId: property._id, approvedBy: property.approvedBy, createdBy: property.createdBy._id }, `Property ${approvalStatus} successfully`);
-
-  } catch (err) {
-    return error(res, err, 500);
-  }
-};
-
-
 // ✅ GET Single Property
 const getPropertyById = async (req, res) => {
   try {
@@ -478,18 +381,6 @@ const getPropertyById = async (req, res) => {
       .populate("approvedBy", "fullname email role");
 
     if (!property) return error(res, new Error("Property not found"), 404);
-
-    // ✅ Visibility check for non-approved properties
-    // if (property.approvalStatus !== "approved") {
-    //   if (
-    //     !req.user ||
-    //     (req.user._id.toString() !== property.createdBy._id.toString() &&
-    //       req.user.role !== "admin" &&
-    //       req.user.role !== "superadmin")
-    //   ) {
-    //     return error(res, new Error("Property not found"), 404);
-    //   }
-    // }
 
     const propertyObj = property.toObject();
     propertyObj.propertyImages = propertyObj.propertyImages?.map((img) => getImageUrl(img));

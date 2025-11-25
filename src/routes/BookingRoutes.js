@@ -30,7 +30,7 @@ router.delete(
 router.patch(
   "/update-status",
   accessTokenVerify,
-  authorizeRoles("superAdmin"),
+  authorizeRoles("superAdmin", "admin"),
   BookingController.updateBookingStatus
 );
 router.get(
