@@ -93,8 +93,8 @@ const updateProperty = async (req, res) => {
     const oldImages = Array.isArray(data.existingImages)
       ? data.existingImages
       : data.existingImages
-      ? [data.existingImages]
-      : [];
+        ? [data.existingImages]
+        : [];
 
     const newImages =
       req.files?.map((file) => file.path || file.secure_url) || [];
@@ -217,12 +217,30 @@ const getAllProperties = async (req, res) => {
       locality,
       propertyType,
       listingType,
+      minPrice,
+      maxPrice
     } = req.query;
 
-    const skip = (page - 1) * limit;
+    console.log(req.query);
+
+    // FORCE convert to numbers (important)
+    const pageNum = parseInt(page) || 1;
+    const limitNum = parseInt(limit) || 10;
+
+    const skip = (pageNum - 1) * limitNum;
+
 
     // ---------- BASIC MATCH (filters) ----------
     const match = {};
+    // PRICE FILTER
+    if (minPrice && maxPrice) {
+      match.price = { $gte: Number(minPrice), $lte: Number(maxPrice) };
+    } else if (minPrice) {
+      match.price = { $gte: Number(minPrice) };
+    } else if (maxPrice) {
+      match.price = { $lte: Number(maxPrice) };
+    }
+
 
     if (cityId && mongoose.Types.ObjectId.isValid(cityId)) {
       match["location.cityId"] = new mongoose.Types.ObjectId(cityId);
